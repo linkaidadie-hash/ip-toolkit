@@ -425,21 +425,24 @@
 
     // 答案 storage key
     var storeKey = 'zc_hightech_answers';
-    if (!self.highTechAnswers) {
+    // 关键:不要 self.highTechAnswers = {...} 整体覆盖(会丢失 setup 的 reactive)
+    // 改为只在空时从 localStorage sync 进 reactive
+    if (Object.keys(self.highTechAnswers || {}).length === 0) {
       try {
         var saved = localStorage.getItem(storeKey);
-        self.highTechAnswers = saved ? JSON.parse(saved) : {};
-      } catch (e) {
-        self.highTechAnswers = {};
-      }
+        if (saved) {
+          var obj = JSON.parse(saved);
+          Object.keys(obj).forEach(function (k) { self.highTechAnswers[k] = obj[k]; });
+        }
+      } catch (e) {}
     }
     var setAns = function (id, v) {
-      self.highTechAnswers[id] = v;
+      self.highTechAnswers[id] = v;  // 写入 reactive 字段,触发响应式
       try { localStorage.setItem(storeKey, JSON.stringify(self.highTechAnswers)); } catch (e) {}
       self.highTechScore = null; // 触发重新计算
     };
 
-    // 计算当前报告
+    // 计算当前报告(每次 render 都算)
     var report = generateReport(self.highTechAnswers);
 
     // —— 评估仪表盘 ——

@@ -480,7 +480,7 @@
       ]), { icon: '📊' });
     }
 
-    if (!self.htOverview) self.htOverview = { year: new Date().getFullYear(), data: null, loading: false };
+    if (!self.htOverview.year) { self.htOverview.year = new Date().getFullYear(); self.htOverview.data = null; self.htOverview.loading = false; }
 
     var loadData = async function () {
       try {
@@ -577,7 +577,7 @@
 
   // ============ 子页面: 项目台账 ============
   function renderProjects(self, h, card) {
-    if (!self.htProjects) self.htProjects = { list: [], loading: false, loaded: false, editing: null };
+    if (!self.htProjects.list) { self.htProjects.list = []; self.htProjects.loading = false; self.htProjects.loaded = false; self.htProjects.editing = null; }
 
     var load = async function () {
       try {
@@ -739,7 +739,7 @@
 
   // ============ 子页面: 费用辅助账 ============
   function renderExpenses(self, h, card) {
-    if (!self.htExpenses) self.htExpenses = { list: [], projects: [], loading: false, loaded: false, editing: null, filterProject: 'all', filterYear: new Date().getFullYear() };
+    if (!self.htExpenses.list) { self.htExpenses.list = []; self.htExpenses.projects = []; self.htExpenses.loading = false; self.htExpenses.loaded = false; self.htExpenses.editing = null; self.htExpenses.filterProject = 'all'; self.htExpenses.filterYear = new Date().getFullYear(); }
 
     var load = async function () {
       self.htExpenses.loading = true;
@@ -927,7 +927,7 @@
 
   // ============ 子页面: 人员 ============
   function renderStaff(self, h, card) {
-    if (!self.htStaff) self.htStaff = { list: [], loading: false, loaded: false, editing: null, hours: [], hoursLoaded: false };
+    if (!self.htStaff.list) { self.htStaff.list = []; self.htStaff.loading = false; self.htStaff.loaded = false; self.htStaff.editing = null; self.htStaff.hours = []; self.htStaff.hoursLoaded = false; }
 
     var load = async function () {
       try {
@@ -1079,7 +1079,7 @@
 
   // ============ 子页面: 高新收入 ============
   function renderIncome(self, h, card) {
-    if (!self.htIncome) self.htIncome = { list: [], loading: false, loaded: false, editing: null, totalIncome: 0 };
+    if (!self.htIncome.list) { self.htIncome.list = []; self.htIncome.loading = false; self.htIncome.loaded = false; self.htIncome.editing = null; self.htIncome.totalIncome = 0; }
 
     var load = async function () {
       try {
