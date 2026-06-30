@@ -726,6 +726,10 @@ const app = createApp({
           h('p', { class: 'hint' }, '支持 JPG/PNG，浏览器内 OCR 自动识别')
         ]),
         h('input', { type: 'file', accept: 'image/*', id: 'img-input', style: 'display:none', onChange: (e) => self.handleImageUpload(e) }),
+        // —— 商标模式专属:AI 生成商标图样 ——
+        (self.mode === 'trademark' && window.AITrademarkImage)
+          ? window.AITrademarkImage.renderAITrademarkPanel(self, h)
+          : null,
         self.inputs.imagePreview ? h('div', { class: 'mt-12' }, [
           btn('🔍 识别图样/营业执照', () => self.runOcr(), { primary: true }),
           self.inputs.imageOcrText ? h('div', { class: 'mt-12 result-card' }, [
