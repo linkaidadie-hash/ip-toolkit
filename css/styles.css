@@ -825,3 +825,8 @@ a:hover { text-decoration: underline; }
   .ai-form-row { flex-direction: column; align-items: stretch; }
   .ai-form-row label { min-width: auto; }
 }
+
+/* ========== DB ¥ÌŒÛÃ· æ ========== */
+.ht-db-error { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px; }
+.ht-db-error h3 { color: #991b1b; margin-top: 0; }
+.ht-db-error ul { margin: 8px 0; padding-left: 20px; }

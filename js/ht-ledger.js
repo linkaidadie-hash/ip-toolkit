@@ -80,25 +80,43 @@
   ];
 
   // ============ 数据库 ============
-  let db;
+  let db = null;
+  let dbReady = false;
+  let dbError = null;
   function initDB() {
     if (db) return db;
-    // 单独 db 名,避免和 app.js 主库冲突
-    db = new Dexie('ipbutler_ht');
-    db.version(1).stores({
-      // 研发项目
-      ht_projects: '++id, code, name, status, startDate, endDate, leader, fieldCode, budget, ts',
-      // 研发费用 - 按项目按月按类别
-      ht_expenses: '++id, projectId, yearMonth, category, amount, note, hasInvoice, ts',
-      // 研发人员(含职工总数,用于算科技人员占比)
-      ht_staff: '++id, name, isFullTime, isTech, role, education, joinedAt, ts',
-      // 工时分配(每人每月每项目的研发工时)
-      ht_hours: '++id, staffId, projectId, yearMonth, hours, ts',
-      // 高新收入台账
-      ht_income: '++id, yearMonth, product, fieldCode, amount, hasContract, hasInvoice, ts'
-    });
+    try {
+      // 单独 db 名,避免和 app.js 主库冲突
+      db = new Dexie('ipbutler_ht');
+      db.version(1).stores({
+        // 研发项目
+        ht_projects: '++id, code, name, status, startDate, endDate, leader, fieldCode, budget, ts',
+        // 研发费用 - 按项目按月按类别
+        ht_expenses: '++id, projectId, yearMonth, category, amount, note, hasInvoice, ts',
+        // 研发人员(含职工总数,用于算科技人员占比)
+        ht_staff: '++id, name, isFullTime, isTech, role, education, joinedAt, ts',
+        // 工时分配(每人每月每项目的研发工时)
+        ht_hours: '++id, staffId, projectId, yearMonth, hours, ts',
+        // 高新收入台账
+        ht_income: '++id, yearMonth, product, fieldCode, amount, hasContract, hasInvoice, ts'
+      });
+      dbReady = true;
+      dbError = null;
+      // 暴露 db 错误到 window 方便调试
+      db.on('error', function (err) {
+        console.error('[HTLedger DB error]', err);
+        dbError = err.message || String(err);
+        if (window.__showError) window.__showError('db', err);
+      });
+    } catch (e) {
+      dbError = e.message || String(e);
+      console.error('[HTLedger initDB FAIL]', e);
+      if (window.__showError) window.__showError('ht-init', e);
+    }
     return db;
   }
+  // 同步触发初始化,确保 dbReady 状态尽早确定
+  initDB();
 
   // ============ CRUD: 项目 ============
   async function listProjects() {
@@ -133,10 +151,21 @@
   async function listExpenses(filter) {
     initDB();
     filter = filter || {};
-    let q = db.ht_expenses.toCollection();
-    if (filter.projectId) q = db.ht_expenses.where('projectId').equals(filter.projectId);
-    else if (filter.yearMonth) q = db.ht_expenses.where('yearMonth').equals(filter.yearMonth);
-    return q.reverse().sortBy('ts');
+    if (!db) return [];
+    try {
+      let all;
+      if (filter.projectId) {
+        all = await db.ht_expenses.where('projectId').equals(filter.projectId).toArray();
+      } else if (filter.yearMonth) {
+        all = await db.ht_expenses.where('yearMonth').equals(filter.yearMonth).toArray();
+      } else {
+        all = await db.ht_expenses.toArray();
+      }
+      return all.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    } catch (e) {
+      console.error('[listExpenses]', e);
+      return [];
+    }
   }
   async function saveExpense(e) {
     initDB();
@@ -360,6 +389,28 @@
     if (!self.htSubTab) {
       try { self.htSubTab = localStorage.getItem(subTabKey) || 'overview'; } catch (e) { self.htSubTab = 'overview'; }
     }
+
+    // DB 完全不可用时,所有子 tab 都显示错误
+    if (dbError && !db) {
+      return h('div', null, [
+        h('div', { class: 'ht-top' }, [
+          h('h2', null, '研发台账管理'),
+          h('p', { class: 'sub' }, '数据库连接失败')
+        ]),
+        h('div', { class: 'card ht-card ht-db-error', style: 'border-left:4px solid #ef4444' }, [
+          h('h3', { style: 'color:#991b1b;margin-top:0' }, '⚠️ IndexedDB 不可用'),
+          h('p', null, '研发台账需要本地数据库支持,但当前环境无法访问。'),
+          h('p', { style: 'font-size:13px;color:#666' }, '可能原因:'),
+          h('ul', { style: 'font-size:13px;color:#666' }, [
+            h('li', null, '• 浏览器隐私/无痕模式(IndexedDB 在该模式下被禁用)'),
+            h('li', null, '• 浏览器禁用了第三方 Cookie 或本站点存储'),
+            h('li', null, '• 之前的数据库 schema 与当前版本不匹配(请清除本站点数据)')
+          ]),
+          h('p', { style: 'font-size:13px;color:#666' }, '错误: ' + (dbError || 'unknown')),
+          h('p', { style: 'font-size:13px;color:#666' }, '解决:用普通模式打开,或 F12 → Application → IndexedDB → 删除 "ipbutler_ht" → 刷新。')
+        ])
+      ]);
+    }
     var setSub = function (k) {
       self.htSubTab = k;
       try { localStorage.setItem(subTabKey, k); } catch (e) {}
@@ -418,7 +469,32 @@
       ]);
     };
 
+    // DB 不可用时显示降级 UI
+    if (!db || dbError) {
+      return card('总览', h('div', { class: 'ht-db-error' }, [
+        h('div', { style: 'color:#991b1b;font-weight:600;margin-bottom:8px' }, '⚠️ 本地数据库不可用'),
+        h('p', { style: 'font-size:13px;color:#666' }, '可能原因:浏览器禁用了 IndexedDB(隐私模式/第三方 Cookie 屏蔽),或数据库版本不匹配。'),
+        h('p', { style: 'font-size:13px;color:#666' }, '错误详情: ' + (dbError || 'Dexie 未初始化')),
+        h('p', { style: 'font-size:13px;color:#666' }, '解决:请用正常模式打开(非隐私窗口),或清除浏览器本站点数据后刷新。')
+      ]), { icon: '📊' });
+    }
+
     if (!self.htOverview) self.htOverview = { year: new Date().getFullYear(), data: null, loading: false };
+
+    var loadData = async function () {
+      try {
+        self.htOverview.loading = true;
+        self.htOverview.data = await rdStructureByYear(self.htOverview.year);
+        var techR = await techStaffRatio(self.htOverview.year);
+        self.htOverview.techRatio = techR;
+      } catch (e) {
+        console.error('[renderOverview loadData]', e);
+        if (window.__showError) window.__showError('overview', e);
+        self.htOverview.error = e.message || String(e);
+      } finally {
+        self.htOverview.loading = false;
+      }
+    };
 
     var loadData = async function () {
       self.htOverview.loading = true;
@@ -503,10 +579,17 @@
     if (!self.htProjects) self.htProjects = { list: [], loading: false, loaded: false, editing: null };
 
     var load = async function () {
-      self.htProjects.loading = true;
-      self.htProjects.list = await listProjects();
-      self.htProjects.loading = false;
-      self.htProjects.loaded = true;
+      try {
+        self.htProjects.loading = true;
+        self.htProjects.list = await listProjects();
+      } catch (e) {
+        console.error('[renderProjects load]', e);
+        if (window.__showError) window.__showError('projects', e);
+        self.htProjects.list = [];
+      } finally {
+        self.htProjects.loading = false;
+        self.htProjects.loaded = true;
+      }
     };
 
     if (!self.htProjects.loaded) {
@@ -846,10 +929,17 @@
     if (!self.htStaff) self.htStaff = { list: [], loading: false, loaded: false, editing: null, hours: [], hoursLoaded: false };
 
     var load = async function () {
-      self.htStaff.loading = true;
-      self.htStaff.list = await listStaff();
-      self.htStaff.loading = false;
-      self.htStaff.loaded = true;
+      try {
+        self.htStaff.loading = true;
+        self.htStaff.list = await listStaff();
+      } catch (e) {
+        console.error('[render load]', e);
+        if (window.__showError) window.__showError('htStaff', e);
+        self.htStaff.list = [];
+      } finally {
+        self.htStaff.loading = false;
+        self.htStaff.loaded = true;
+      }
     };
 
     if (!self.htStaff.loaded) {
@@ -991,10 +1081,17 @@
     if (!self.htIncome) self.htIncome = { list: [], loading: false, loaded: false, editing: null, totalIncome: 0 };
 
     var load = async function () {
-      self.htIncome.loading = true;
-      self.htIncome.list = await listIncome();
-      self.htIncome.loading = false;
-      self.htIncome.loaded = true;
+      try {
+        self.htIncome.loading = true;
+        self.htIncome.list = await listIncome();
+      } catch (e) {
+        console.error('[render load]', e);
+        if (window.__showError) window.__showError('htIncome', e);
+        self.htIncome.list = [];
+      } finally {
+        self.htIncome.loading = false;
+        self.htIncome.loaded = true;
+      }
     };
 
     if (!self.htIncome.loaded) {
