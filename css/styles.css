@@ -649,3 +649,73 @@ a:hover { text-decoration: underline; }
   transition: opacity 0.15s;
 }
 .idea-card:hover .idea-cta { opacity: 1; }
+
+/* ========== 高新认定 模块 ========== */
+.hightech-wrap { display: flex; flex-direction: column; gap: 16px; }
+.hightech-wrap .ht-top h2 { margin: 0 0 4px 0; font-size: 20px; color: var(--primary); }
+.hightech-wrap .ht-top .sub { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+.ht-card { padding: 16px 20px; }
+.ht-card h3 { margin: 0 0 8px 0; font-size: 16px; }
+.ht-card .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 12px 0; }
+
+.ht-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.ht-badge { padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 14px; }
+.ht-pass { background: #d1fae5; color: #065f46; }
+.ht-fail { background: #fee2e2; color: #991b1b; }
+.ht-hard-ok { background: #dbeafe; color: #1e40af; }
+.ht-hard-fail { background: #fef3c7; color: #92400e; }
+
+.ht-modules { display: flex; flex-direction: column; gap: 10px; }
+.ht-module-bar { display: flex; flex-direction: column; gap: 4px; }
+.ht-module-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; }
+.ht-module-score { color: var(--text-muted); font-weight: 400; }
+.ht-bar-bg { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; }
+.ht-bar-fg { height: 100%; border-radius: 5px; transition: width 0.3s; }
+
+.ht-section { margin-top: 12px; padding: 12px; background: var(--bg); border-radius: 6px; }
+.ht-section h4 { margin: 0 0 12px 0; font-size: 14px; color: var(--primary); padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+.ht-q { padding: 12px; margin-bottom: 10px; background: white; border-radius: 6px; border: 1px solid var(--border); }
+.ht-q-title { font-size: 13px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ht-q-module { font-size: 11px; padding: 2px 8px; border-radius: 3px; background: var(--primary-light); color: var(--primary); font-weight: 400; }
+.ht-q-body { margin-bottom: 6px; }
+.ht-q-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+.ht-input { width: 100%; max-width: 320px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; font-family: inherit; }
+.ht-input:focus { outline: none; border-color: var(--primary); }
+
+.ht-multicheck { display: flex; flex-direction: column; gap: 6px; }
+.ht-check-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg); border-radius: 4px; cursor: pointer; font-size: 13px; }
+.ht-check-item input { cursor: pointer; }
+.ht-check-score { margin-left: auto; color: var(--primary); font-weight: 600; font-size: 12px; }
+
+.ht-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+.ht-recs { margin: 0; padding-left: 20px; }
+.ht-recs li { margin-bottom: 6px; font-size: 13px; line-height: 1.6; }
+
+.ht-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.ht-row label { font-size: 13px; font-weight: 500; min-width: 140px; }
+.ht-hint-line { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+.ht-countdown { padding: 16px; border-radius: 6px; font-size: 18px; font-weight: 600; text-align: center; margin-top: 8px; }
+.ht-countdown strong { font-size: 28px; margin: 0 4px; }
+.ht-warn { background: #fef3c7; color: #92400e; }
+.ht-danger { background: #fee2e2; color: #991b1b; }
+.ht-countdown-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+.ht-materials { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.ht-mat-cat { padding: 12px; background: var(--bg); border-radius: 6px; }
+.ht-mat-cat-title { font-size: 13px; font-weight: 600; color: var(--primary); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.ht-mat-cat ul { margin: 0; padding-left: 18px; }
+.ht-mat-cat li { font-size: 12px; line-height: 1.7; }
+
+.ht-export-row { display: flex; gap: 10px; margin-top: 8px; justify-content: flex-end; }
+
+@media (max-width: 720px) {
+  .ht-materials { grid-template-columns: 1fr; }
+  .ht-row { flex-direction: column; align-items: stretch; }
+  .ht-row label { min-width: auto; }
+  .ht-input { max-width: 100%; }
+}

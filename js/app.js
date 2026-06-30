@@ -694,7 +694,8 @@ const app = createApp({
 
     const modeSwitch = h('div', { class: 'mode-switch' }, [
       h('button', { class: 'mode-btn' + (self.mode === 'trademark' ? ' active' : ''), onClick: () => { self.mode = 'trademark'; } }, '📋 商标申请'),
-      h('button', { class: 'mode-btn' + (self.mode === 'software' ? ' active' : ''), onClick: () => { self.mode = 'software'; } }, '💻 软著申请')
+      h('button', { class: 'mode-btn' + (self.mode === 'software' ? ' active' : ''), onClick: () => { self.mode = 'software'; } }, '💻 软著申请'),
+      h('button', { class: 'mode-btn' + (self.mode === 'hightech' ? ' active' : '') , onClick: () => { self.mode = 'hightech'; } }, '🏆 高新认定')
     ]);
 
     const inputCard = h('div', { class: 'card' }, [
@@ -873,10 +874,12 @@ const app = createApp({
 
     const main = h('main', { class: 'main' }, [
       modeSwitch,
-      h('div', { class: 'workbench' }, [
-        inputCard,
-        h('div', null, [applicantCard, fieldsCard, actionsCard])
-      ])
+      self.mode === 'hightech'
+        ? (window.HighTech ? window.HighTech.renderHighTechTab(self, h) : h('div', { class: 'card' }, [h('p', null, '高新模块加载中...')]))
+        : h('div', { class: 'workbench' }, [
+            inputCard,
+            h('div', null, [applicantCard, fieldsCard, actionsCard])
+          ])
     ]);
 
     const settingsModal = self.showSettings ? h('div', {
