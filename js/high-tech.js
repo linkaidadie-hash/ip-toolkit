@@ -36,28 +36,30 @@
     {
       id: 'ip_class1',
       module: '知识产权',
-      maxScore: 30,
+      maxScore: 24,
       title: '拥有的 I 类知识产权数量(发明专利/国防专利/植物新品种/集成电路布图设计/新药证书)',
       type: 'number',
       unit: '项',
       score: function (v) {
         var n = Math.max(0, parseInt(v, 10) || 0);
-        return Math.min(30, n * 8);
+        // 《工作指引》:知识产权总分 ≤30,I 类每项 8 分(II 类 6 分仅 1 项)
+        return Math.min(24, n * 8);
       },
-      hint: '每项 8 分,封顶 30 分'
+      hint: '每项 8 分,I 类封顶 24 分(知识产权总分 30 分上限 = I 类 24 + II 类 6)'
     },
     {
       id: 'ip_class2',
       module: '知识产权',
-      maxScore: 30,
+      maxScore: 6,
       title: '拥有的 II 类知识产权数量(实用新型/外观设计/软件著作权)',
       type: 'number',
       unit: '项',
       score: function (v) {
         var n = Math.max(0, parseInt(v, 10) || 0);
-        return Math.min(30, n * 6);
+        // 《工作指引》:II 类每项 6 分,仅 1 项计入评分(总分上限 6)
+        return Math.min(6, n * 6);
       },
-      hint: '每项 6 分,封顶 30 分'
+      hint: '每项 6 分,II 类仅 1 项计入,封顶 6 分(《工作指引》)'
     },
 
     // —— 科技成果转化(≤30分) ——
@@ -237,9 +239,17 @@
     var total = 0;
     var breakdown = {};
     QUESTIONS.forEach(function (q) {
+      var s = 0;
       if (q.score) {
-        var s = q.score(answers[q.id]);
-        breakdown[q.id] = { score: s, max: q.maxScore || 0 };
+        // 函数式评分(number / multicheck)
+        s = q.score(answers[q.id]);
+      } else if (q.type === 'select' && q.options) {
+        // select 题型:从 options 里取对应 score
+        var opt = q.options.find(function (o) { return String(o.value) === String(answers[q.id]); });
+        s = opt && typeof opt.score === 'number' ? opt.score : 0;
+      }
+      if (q.maxScore) {
+        breakdown[q.id] = { score: s, max: q.maxScore };
         total += s;
       }
     });
