@@ -1,5 +1,5 @@
 /**
- * 知产管家 - 主应用 v0.3
+ * 知产管家 - 主应用 v0.7
  * 智能填报：图片 OCR + GitHub + 源码 + 文字 → AI 自动提取
  * 商标：AI 起名 + 风险评估 + 自动选类 + 自动勾选类似群组
  */
@@ -66,6 +66,51 @@ const app = createApp({
     }
 
     // ===== 输入处理 =====
+    // 统一加载图片:自动调 AI 适配到商标局标准(800x800 JPG)
+    async function loadAndFitImage(file, opts) {
+      opts = opts || {};
+      if (!file.type.startsWith('image/')) {
+        if (window.__showToast) window.__showToast('请上传图片文件', 'error');
+        return;
+      }
+      // 用 AI 适配(商标图样 + 软著营业执照都合适)
+      if (window.AITrademarkImage && window.AITrademarkImage.autoFitToStandard) {
+        try {
+          if (window.__showToast) window.__showToast('⏳ AI 智能适配中...', 'info', 1500);
+          var fit = await window.AITrademarkImage.autoFitToStandard(file);
+          inputs.imageBlob = fit.blob;
+          inputs.imagePreview = fit.dataUrl;
+          inputs.imageDims = { w: fit.result.w, h: fit.result.h };
+          var orig = fit.original;
+          var msg = '✓ 已适配商标局标准: ' + orig.w + '×' + orig.h + ' (' + (orig.size/1024).toFixed(0) + 'KB) → ' + fit.result.w + '×' + fit.result.h + ' (' + (fit.result.size/1024).toFixed(0) + 'KB JPG)';
+          if (window.__showToast) window.__showToast(msg, 'success', 4000);
+          if (opts.onLoad) opts.onLoad(fit);
+        } catch (e) {
+          // fallback: 直接读
+          inputs.imageBlob = file;
+          var r = new FileReader();
+          r.onload = function () {
+            inputs.imagePreview = r.result;
+            var img = new Image();
+            img.onload = function () { inputs.imageDims = { w: img.width, h: img.height }; };
+            img.src = r.result;
+          };
+          r.readAsDataURL(file);
+        }
+      } else {
+        // 没 AI 模块时降级
+        inputs.imageBlob = file;
+        var r2 = new FileReader();
+        r2.onload = function () {
+          inputs.imagePreview = r2.result;
+          var img2 = new Image();
+          img2.onload = function () { inputs.imageDims = { w: img2.width, h: img2.height }; checkImageSpec(); };
+          img2.src = r2.result;
+        };
+        r2.readAsDataURL(file);
+      }
+    }
+
     function handleImageUpload(e) {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
@@ -73,18 +118,11 @@ const app = createApp({
         if (window.__showToast) window.__showToast('请上传图片文件', 'error');
         return;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        if (window.__showToast) window.__showToast('图片超过 5MB', 'warn');
+      if (file.size > 20 * 1024 * 1024) {
+        if (window.__showToast) window.__showToast('图片超过 20MB', 'warn');
+        return;
       }
-      inputs.imageBlob = file;
-      const reader = new FileReader();
-      reader.onload = () => {
-        inputs.imagePreview = reader.result;
-        const img = new Image();
-        img.onload = () => { inputs.imageDims = { w: img.width, h: img.height }; checkImageSpec(); };
-        img.src = reader.result;
-      };
-      reader.readAsDataURL(file);
+      loadAndFitImage(file);
     }
 
     function checkImageSpec() {
@@ -106,15 +144,7 @@ const app = createApp({
         if (window.__showToast) window.__showToast('请拖入图片文件', 'error');
         return;
       }
-      inputs.imageBlob = file;
-      const reader = new FileReader();
-      reader.onload = () => {
-        inputs.imagePreview = reader.result;
-        const img = new Image();
-        img.onload = () => { inputs.imageDims = { w: img.width, h: img.height }; checkImageSpec(); };
-        img.src = reader.result;
-      };
-      reader.readAsDataURL(file);
+      loadAndFitImage(file);
     }
 
     async function runOcr() {
@@ -679,7 +709,7 @@ const app = createApp({
         h('div', { class: 'brand' }, [
           h('span', { class: 'brand-mark' }, 'IP'),
           h('span', { class: 'brand-name' }, '知产管家'),
-          h('span', { class: 'brand-tag' }, 'v0.3')
+          h('span', { class: 'brand-tag' }, 'v0.7')
         ]),
         h('div', { class: 'spacer' }),
         h('div', {
@@ -1014,7 +1044,7 @@ try {
   app.mount('#app');
   const ph = document.getElementById('loading-placeholder');
   if (ph) ph.style.display = 'none';
-  console.log('[ip-butler] mounted v0.3');
+  console.log('[ip-butler] mounted v0.7');
 } catch (e) {
   if (window.__showError) window.__showError('mount', e);
   console.error('[ip-butler] mount error', e);

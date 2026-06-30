@@ -118,6 +118,147 @@
     return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
   }
 
+  // ============ AI 自动适配商标局标准 ============
+  // 标准:5×5cm~10×10cm,800×800px(@200dpi),纯白底,JPG < 1MB
+  // 智能:检测主体 bounding box → 加 padding → 居中缩放 → 转 JPG
+  const TRADEMARK_STANDARD = {
+    targetSize: 800,           // 输出像素(10×10cm @ 200dpi)
+    minSize: 591,              // 5×5cm @ 300dpi
+    maxSize: 1181,             // 10×10cm @ 300dpi
+    paddingRatio: 0.10,        // 主体周围留 10% 空白
+    bgColor: '#ffffff',         // 标准底色(白色)
+    jpgQuality: 0.85,           // JPG 质量
+    maxBytes: 1024 * 1024,     // < 1MB
+    threshold: 240             // 检测主体的灰度阈值(>240 视为白底)
+  };
+
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function (e) { reject(e); };
+      img.src = src;
+    });
+  }
+
+  // 检测主体 bounding box(非白/非透明像素)
+  function detectSubjectBBox(canvas, threshold) {
+    threshold = threshold || TRADEMARK_STANDARD.threshold;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    var data = ctx.getImageData(0, 0, w, h).data;
+    var minX = w, minY = h, maxX = -1, maxY = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        var r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        // 透明 或 接近白色 → 视为背景
+        if (a < 30) continue;
+        // 用亮度判断(更鲁棒)
+        var brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        if (brightness >= threshold) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < minX || maxY < minY) return null; // 全是白底
+    return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  }
+
+  // 主函数:blob → 适配商标局标准的 Blob
+  async function autoFitToStandard(blob) {
+    var originalSize = blob.size;
+    var url = URL.createObjectURL(blob);
+    try {
+      var img = await loadImage(url);
+      var origW = img.naturalWidth;
+      var origH = img.naturalHeight;
+
+      // 第一步:检测主体(先把原图画到 canvas 上来读像素)
+      var detectCanvas = document.createElement('canvas');
+      detectCanvas.width = origW;
+      detectCanvas.height = origH;
+      var dctx = detectCanvas.getContext('2d');
+      dctx.drawImage(img, 0, 0);
+      var subject = detectSubjectBBox(detectCanvas);
+
+      // 第二步:计算裁剪区域(主体 + padding,或全图)
+      var cropX, cropY, cropW, cropH;
+      if (subject && subject.w > 10 && subject.h > 10) {
+        var pad = TRADEMARK_STANDARD.paddingRatio;
+        var padX = Math.round(subject.w * pad);
+        var padY = Math.round(subject.h * pad);
+        cropX = Math.max(0, subject.x - padX);
+        cropY = Math.max(0, subject.y - padY);
+        cropW = Math.min(origW - cropX, subject.w + padX * 2);
+        cropH = Math.min(origH - cropY, subject.h + padY * 2);
+      } else {
+        // 没检测到主体(可能全白),用全图
+        cropX = 0; cropY = 0; cropW = origW; cropH = origH;
+      }
+
+      // 第三步:等比缩放到目标尺寸
+      var target = TRADEMARK_STANDARD.targetSize;
+      var scale = Math.min(target / cropW, target / cropH);
+      var drawW = Math.round(cropW * scale);
+      var drawH = Math.round(cropH * scale);
+      var offsetX = Math.round((target - drawW) / 2);
+      var offsetY = Math.round((target - drawH) / 2);
+
+      // 第四步:输出 canvas
+      var out = document.createElement('canvas');
+      out.width = target;
+      out.height = target;
+      var octx = out.getContext('2d');
+      // 白底
+      octx.fillStyle = TRADEMARK_STANDARD.bgColor;
+      octx.fillRect(0, 0, target, target);
+      // 平滑缩放绘制
+      octx.imageSmoothingEnabled = true;
+      octx.imageSmoothingQuality = 'high';
+      octx.drawImage(img, cropX, cropY, cropW, cropH, offsetX, offsetY, drawW, drawH);
+
+      // 第五步:转 Blob(JPG),循环压缩直到 < 1MB
+      var quality = TRADEMARK_STANDARD.jpgQuality;
+      var finalBlob = await new Promise(function (resolve) {
+        out.toBlob(function (b) { resolve(b); }, 'image/jpeg', quality);
+      });
+
+      // 如果太大,降质量重试
+      var attempts = 0;
+      while (finalBlob && finalBlob.size > TRADEMARK_STANDARD.maxBytes && quality > 0.5 && attempts < 3) {
+        quality -= 0.1;
+        attempts++;
+        finalBlob = await new Promise(function (resolve) {
+          out.toBlob(function (b) { resolve(b); }, 'image/jpeg', quality);
+        });
+      }
+
+      // 第六步:dataURL 用于预览
+      var dataUrl = out.toDataURL('image/jpeg', quality);
+
+      return {
+        blob: finalBlob,
+        dataUrl: dataUrl,
+        original: { w: origW, h: origH, size: originalSize },
+        result: { w: target, h: target, size: finalBlob ? finalBlob.size : 0, format: 'image/jpeg', quality: quality },
+        crop: { x: cropX, y: cropY, w: cropW, h: cropH, subjectDetected: !!subject },
+        applied: origW !== target || origH !== target || originalSize !== (finalBlob ? finalBlob.size : 0)
+      };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // 格式化字节
+  function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
   // ============ Vue 渲染:AI 图样工具面板 ============
   function renderAITrademarkPanel(self, h) {
     // 状态
@@ -273,10 +414,14 @@
     FONT_STYLES: FONT_STYLES,
     DECORATIONS: DECORATIONS,
     COLOR_PRESETS: COLOR_PRESETS,
+    TRADEMARK_STANDARD: TRADEMARK_STANDARD,
     makeSvg: makeSvg,
     makeLogoBatch: makeLogoBatch,
     svgToPng: svgToPng,
     svgToDataUrl: svgToDataUrl,
+    autoFitToStandard: autoFitToStandard,
+    detectSubjectBBox: detectSubjectBBox,
+    formatBytes: formatBytes,
     renderAITrademarkPanel: renderAITrademarkPanel
   };
 })();
