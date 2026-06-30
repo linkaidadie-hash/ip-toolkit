@@ -102,11 +102,12 @@
       });
       dbReady = true;
       dbError = null;
-      // 暴露 db 错误到 window 方便调试
-      db.on('error', function (err) {
-        console.error('[HTLedger DB error]', err);
-        dbError = err.message || String(err);
-        if (window.__showError) window.__showError('db', err);
+      // 不订阅 db.on('error') — Dexie 3.x API 行为变化,默认 promise reject 已足够
+      // 主动 open 一次,失败时更新 dbError
+      db.open().catch(function (e) {
+        dbReady = false;
+        dbError = e.message || String(e);
+        console.error('[HTLedger db.open() FAIL]', e);
       });
     } catch (e) {
       dbError = e.message || String(e);
