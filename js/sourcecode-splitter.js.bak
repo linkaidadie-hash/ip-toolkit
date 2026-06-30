@@ -1,0 +1,84 @@
+/**
+ * 源程序处理工具
+ * - 读取 .py / .js / .java / .cpp / .txt 等文本格式
+ * - 按规则切分前 N 页 + 后 N 页
+ * - 计算总行数 / 总页数
+ */
+const SourceCodeSplitter = (() => {
+  /**
+   * 读取文本文件
+   */
+  async function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('读取文件失败：' + file.name));
+      reader.readAsText(file, detectEncoding(file));
+    });
+  }
+
+  function detectEncoding(file) {
+    // 默认 utf-8，部分老 .java / .cpp 可能是 GBK
+    // 这里做一个简单判断：文件名带 GBK 字样就用 GBK
+    if (/gbk|gb2312/i.test(file.name)) return 'gbk';
+    return 'utf-8';
+  }
+
+  /**
+   * 接受多文件 → 拼接
+   */
+  async function loadFiles(files) {
+    const out = [];
+    for (const f of files) {
+      try {
+        const text = await readFile(f);
+        out.push({
+          name: f.name,
+          size: f.size,
+          text,
+          lines: text.split(/\r?\n/).length
+        });
+      } catch (e) {
+        console.warn('读取失败：', f.name, e);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 合并多个文件成一个完整文本（中间加分隔注释）
+   */
+  function merge(files) {
+    if (files.length === 0) return '';
+    if (files.length === 1) return files[0].text;
+
+    const sep = '\n'.repeat(2);
+    return files.map(f => {
+      const header = `// ============ ${f.name} ============`;
+      const footer = `// ============ /${f.name} ============`;
+      return `${header}\n${f.text}\n${footer}\n`;
+    }).join('\n');
+  }
+
+  /**
+   * 计算页数
+   */
+  function calcPages(totalLines, linesPerPage) {
+    return Math.max(1, Math.ceil(totalLines / linesPerPage));
+  }
+
+  /**
+   * 预览：返回前 N 行 + 后 M 行
+   */
+  function preview(text, headLines = 30, tailLines = 30) {
+    const lines = text.split(/\r?\n/);
+    if (lines.length <= headLines + tailLines + 4) return text;
+    return [
+      ...lines.slice(0, headLines),
+      `\n// （中间省略 ${lines.length - headLines - tailLines} 行）\n`,
+      ...lines.slice(-tailLines)
+    ].join('\n');
+  }
+
+  return { readFile, loadFiles, merge, calcPages, preview };
+})();

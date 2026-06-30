@@ -1,0 +1,190 @@
+/**
+ * 知产管家 - 数据层
+ * 用 Dexie 封装 IndexedDB
+ * 数据表：
+ *   - projects: 项目（商标 / 软著）
+ *   - applicants: 申请人（个人 / 企业）
+ *   - documents: 文档附件（源程序、说明书、图样等）
+ *   - meta: 元数据（如默认导出/导入用）
+ */
+const Storage = (() => {
+  const db = new Dexie('ip-butler');
+
+  db.version(1).stores({
+    projects:   '++id, type, name, applicantId, status, createdAt, updatedAt',
+    applicants: '++id, name, type, isDefault, createdAt',
+    documents:  '++id, projectId, kind, createdAt',
+    meta:       'key'
+  });
+
+  // ===== Projects =====
+  async function listProjects(type) {
+    if (type) return await db.projects.where('type').equals(type).reverse().sortBy('updatedAt');
+    return await db.projects.orderBy('updatedAt').reverse().toArray();
+  }
+
+  async function getProject(id) {
+    return await db.projects.get(id);
+  }
+
+  async function saveProject(project) {
+    project.updatedAt = Date.now();
+    if (!project.id) {
+      project.createdAt = Date.now();
+      project.status = project.status || 'draft';
+      return await db.projects.add(project);
+    }
+    await db.projects.put(project);
+    return project.id;
+  }
+
+  async function deleteProject(id) {
+    // 同步删除关联文档
+    const docs = await db.documents.where('projectId').equals(id).toArray();
+    await db.documents.bulkDelete(docs.map(d => d.id));
+    await db.projects.delete(id);
+  }
+
+  // ===== Applicants =====
+  async function listApplicants() {
+    return await db.applicants.orderBy('isDefault').reverse().sortBy('name').toArray();
+  }
+
+  async function getApplicant(id) {
+    return await db.applicants.get(id);
+  }
+
+  async function saveApplicant(applicant) {
+    if (!applicant.createdAt) applicant.createdAt = Date.now();
+    applicant.updatedAt = Date.now();
+
+    // 仅允许一个默认申请人
+    if (applicant.isDefault) {
+      const all = await db.applicants.toArray();
+      for (const a of all) {
+        if (a.id !== applicant.id && a.isDefault) {
+          a.isDefault = false;
+          await db.applicants.put(a);
+        }
+      }
+    }
+
+    if (!applicant.id) {
+      return await db.applicants.add(applicant);
+    }
+    await db.applicants.put(applicant);
+    return applicant.id;
+  }
+
+  async function deleteApplicant(id) {
+    // 检查是否被项目引用
+    const refs = await db.projects.where('applicantId').equals(id).count();
+    if (refs > 0) {
+      throw new Error(`有 ${refs} 个项目正在使用此申请人，无法删除。请先修改这些项目的申请人。`);
+    }
+    await db.applicants.delete(id);
+  }
+
+  async function getDefaultApplicant() {
+    const list = await db.applicants.where('isDefault').equals(1).first();
+    return list;
+  }
+
+  // ===== Documents =====
+  async function listDocuments(projectId) {
+    if (projectId) return await db.documents.where('projectId').equals(projectId).toArray();
+    return await db.documents.orderBy('createdAt').reverse().toArray();
+  }
+
+  async function getDocument(id) {
+    return await db.documents.get(id);
+  }
+
+  async function saveDocument(doc) {
+    if (!doc.createdAt) doc.createdAt = Date.now();
+    if (!doc.id) return await db.documents.add(doc);
+    await db.documents.put(doc);
+    return doc.id;
+  }
+
+  async function deleteDocument(id) {
+    await db.documents.delete(id);
+  }
+
+  // ===== 导出/导入 =====
+  async function exportAll() {
+    const [projects, applicants, documents] = await Promise.all([
+      db.projects.toArray(),
+      db.applicants.toArray(),
+      db.documents.toArray()
+    ]);
+    // 文档里的 blob 转 base64，方便导出
+    const docsOut = await Promise.all(documents.map(async d => ({
+      ...d,
+      blob: d.blob ? await blobToBase64(d.blob) : null
+    })));
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      projects,
+      applicants,
+      documents: docsOut
+    };
+  }
+
+  async function importAll(data) {
+    if (!data || data.version !== 1) throw new Error('数据格式不兼容');
+    await db.transaction('rw', db.projects, db.applicants, db.documents, async () => {
+      await db.projects.clear();
+      await db.applicants.clear();
+      await db.documents.clear();
+      await db.applicants.bulkAdd(data.applicants || []);
+      await db.projects.bulkAdd(data.projects || []);
+      const docs = (data.documents || []).map(d => ({
+        ...d,
+        blob: d.blob ? base64ToBlob(d.blob, d.mimeType || 'application/octet-stream') : null
+      }));
+      await db.documents.bulkAdd(docs);
+    });
+    return {
+      projects: (data.projects || []).length,
+      applicants: (data.applicants || []).length,
+      documents: (data.documents || []).length
+    };
+  }
+
+  async function clearAll() {
+    await db.transaction('rw', db.projects, db.applicants, db.documents, async () => {
+      await db.projects.clear();
+      await db.applicants.clear();
+      await db.documents.clear();
+    });
+  }
+
+  // ===== 工具函数 =====
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function base64ToBlob(base64, mimeType) {
+    const arr = base64.split(',');
+    const bstr = atob(arr[arr.length - 1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: mimeType });
+  }
+
+  return {
+    listProjects, getProject, saveProject, deleteProject,
+    listApplicants, getApplicant, saveApplicant, deleteApplicant, getDefaultApplicant,
+    listDocuments, getDocument, saveDocument, deleteDocument,
+    exportAll, importAll, clearAll,
+    _db: db
+  };
+})();

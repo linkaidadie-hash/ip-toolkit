@@ -1,0 +1,277 @@
+/**
+ * 商标表单组件
+ * 用 h() render function 实现（避免模板编译器的潜在兼容问题）
+ */
+const TrademarkForm = {
+  props: {
+    form: { type: Object, required: true },
+    applicants: { type: Array, required: true }
+  },
+  emits: ['save'],
+  data() {
+    return {
+      markTypeOptions: ['文字', '图形', '字母', '数字', '三维', '组合'],
+      dragOver: false
+    };
+  },
+  computed: {
+    showClassDetail() {
+      return this.form.data.category && this.form.data.category !== '';
+    },
+    subclasses() {
+      return this.form.data.category ? NiceClasses.getSubclasses(parseInt(this.form.data.category, 10)) : [];
+    }
+  },
+  methods: {
+    h, // 暴露 Vue h() 给 render 用
+    handleMarkImage(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      this.uploadMarkImage(file);
+    },
+    handleMarkImageDrop(e) {
+      e.preventDefault();
+      this.dragOver = false;
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        alert('请上传图片文件（PNG/JPG/SVG）');
+        return;
+      }
+      this.uploadMarkImage(file);
+    },
+    uploadMarkImage(file) {
+      const reader = new FileReader();
+      const self = this;
+      reader.onload = () => { self.form.data.markImage = reader.result; };
+      reader.readAsDataURL(file);
+    },
+    removeMarkImage() { this.form.data.markImage = null; },
+    selectCategory(n) {
+      this.form.data.category = this.form.data.category === String(n) ? '' : String(n);
+      this.form.data.subclasses = [];
+      this.form.data.goods = '';
+    },
+    toggleSubclass(group, item) {
+      const key = `${group.code}-${item}`;
+      const subs = this.form.data.subclasses || [];
+      const idx = subs.indexOf(key);
+      if (idx > -1) subs.splice(idx, 1);
+      else subs.push(key);
+      this.form.data.subclasses = subs;
+      const grouped = {};
+      subs.forEach(s => {
+        const parts = s.split('-');
+        const code = parts[0];
+        const text = parts.slice(1).join('-');
+        if (!grouped[code]) grouped[code] = [];
+        grouped[code].push(text);
+      });
+      this.form.data.goods = Object.entries(grouped)
+        .map(([code, items]) => `[${code}] ${items.join('；')}`)
+        .join('\n');
+    },
+    isSubclassSelected(group, item) {
+      return (this.form.data.subclasses || []).includes(`${group.code}-${item}`);
+    },
+    async exportApplication() {
+      if (!this.form.applicantId) { alert('请先在「申请人」页面设置申请人信息，并选择本项目的申请人'); return; }
+      const applicant = await Storage.getApplicant(this.form.applicantId);
+      if (!applicant) { alert('未找到所选申请人信息'); return; }
+      if (!this.form.name) { alert('请填写商标名称'); return; }
+      if (!this.form.data.category) { alert('请选择商标类别（1-45）'); return; }
+      if (this.form.data.markImage) PdfGenerator.setMarkImage(this.form.data.markImage);
+      try {
+        const doc = PdfGenerator.generateTrademarkApplication(this.form, applicant);
+        const filename = `商标申请书-${this.form.name || '未命名'}-${Date.now()}.pdf`;
+        PdfGenerator.savePdf(doc, filename);
+      } catch (e) {
+        alert('生成 PDF 失败：' + e.message);
+        console.error(e);
+      }
+    }
+  },
+  render() {
+    const h = Vue.h;
+    const f = this.form;
+    const d = f.data || {};
+    const self = this;
+
+    // 申请人选择 section
+    const applicantSection = h('div', { class: 'section' }, [
+      h('h3', null, '申请人'),
+      h('p', { class: 'sub' }, '选择本商标的申请人。如未设置，请先到「申请人」页面添加。'),
+      h('div', { class: 'form-grid' }, [
+        h('label', { class: 'field full' }, [
+          h('span', { class: 'label' }, '选择申请人 *'),
+          h('select', {
+            value: f.applicantId,
+            onChange: (e) => { f.applicantId = e.target.value; }
+          }, [
+            h('option', { value: '' }, '— 请选择 —'),
+            ...this.applicants.map(a => h('option', { value: a.id }, `${a.name}（${a.type==='individual'?'个人':'企业'}）`))
+          ])
+        ])
+      ])
+    ]);
+
+    // 基本信息 section
+    const basicSection = h('div', { class: 'section' }, [
+      h('h3', null, '商标基本信息'),
+      h('div', { class: 'form-grid' }, [
+        field('商标名称 *', h('input', {
+          type: 'text', value: f.name || '',
+          onInput: (e) => { f.name = e.target.value; }
+        }, null), 'full'),
+        field('商标类型 *', h('select', {
+          value: d.markType || '文字',
+          onChange: (e) => { d.markType = e.target.value; }
+        }, this.markTypeOptions.map(t => h('option', { value: t }, t)))),
+        field('商标描述 / 含义', h('textarea', {
+          value: d.desc || '',
+          onInput: (e) => { d.desc = e.target.value; }
+        }), 'full'),
+        field('申请号', h('input', {
+          type: 'text', value: d.applicationNo || '',
+          onInput: (e) => { d.applicationNo = e.target.value; }
+        })),
+        field('注册号', h('input', {
+          type: 'text', value: d.registrationNo || '',
+          onInput: (e) => { d.registrationNo = e.target.value; }
+        })),
+        field('申请日期', h('input', {
+          type: 'date', value: d.applicationDate || '',
+          onInput: (e) => { d.applicationDate = e.target.value; }
+        })),
+        field('注册日期', h('input', {
+          type: 'date', value: d.registrationDate || '',
+          onInput: (e) => { d.registrationDate = e.target.value; }
+        }))
+      ])
+    ]);
+
+    // 图样 section
+    const markImageSection = h('div', { class: 'section' }, [
+      h('h3', null, '商标图样'),
+      h('p', { class: 'sub' }, '图形商标 / 组合商标必须上传。要求：JPG/PNG，5cm×5cm ~ 10cm×10cm，清晰可辨。'),
+      h('div', {
+        class: 'file-drop',
+        onClick: () => { if (self.$refs.markImageInput) self.$refs.markImageInput.click(); },
+        onDragover: (e) => { e.preventDefault(); self.dragOver = true; },
+        onDragleave: () => { self.dragOver = false; },
+        onDrop: (e) => { e.preventDefault(); self.dragOver = false; self.handleMarkImageDrop(e); }
+      }, d.markImage ? [
+        h('img', { src: d.markImage, style: 'max-width:200px;max-height:200px;display:block;margin:0 auto' }),
+        h('div', { class: 'row gap-8', style: 'margin-top:12px;justify-content:center' }, [
+          h('button', { class: 'btn', onClick: (e) => { e.stopPropagation(); if (self.$refs.markImageInput) self.$refs.markImageInput.click(); } }, '替换'),
+          h('button', { class: 'btn', style: 'color:#dc2626', onClick: (e) => { e.stopPropagation(); self.removeMarkImage(); } }, '删除')
+        ])
+      ] : [
+        h('p', null, '📷 点击上传或拖拽图片到这里'),
+        h('p', { class: 'hint' }, '仅图片文件（PNG/JPG/SVG），最大 2MB')
+      ]),
+      h('input', {
+        ref: 'markImageInput', type: 'file', accept: 'image/*',
+        style: 'display:none',
+        onChange: (e) => self.handleMarkImage(e)
+      })
+    ]);
+
+    // 类别 section
+    const classSection = h('div', { class: 'section' }, [
+      h('h3', null, '商标类别（Nice 分类 1-45）'),
+      h('p', { class: 'sub' }, '点击类别查看详情；商标局规费按类别计（¥270/类）。'),
+      h('div', { class: 'class-grid' },
+        NiceClasses.classes.map(c => h('div', {
+          key: c.n,
+          class: 'class-cell' + (d.category === String(c.n) ? ' selected' : ''),
+          onClick: () => self.selectCategory(c.n)
+        }, [
+          h('span', { class: 'num' }, String(c.n)),
+          h('span', null, c.name)
+        ]))
+      ),
+      this.showClassDetail ? h('div', null, [
+        h('h4', { style: 'margin:12px 0 8px' }, `第 ${d.category} 类 - 类似群组`),
+        h('p', { class: 'muted', style: 'font-size:12px;margin:0 0 12px' }, '勾选你具体申请的商品/服务项目。汇总文本会自动填入下方。'),
+        ...this.subclasses.map(group => h('div', { class: 'subclass-group', key: group.code }, [
+          h('div', { class: 'subclass-title' }, `【${group.code}】 ${group.title}`),
+          h('div', { class: 'subclass-items' },
+            group.items.map(item => h('label', {
+              key: group.code + '-' + item,
+              style: 'display:flex;align-items:center;gap:4px;cursor:pointer'
+            }, [
+              h('input', {
+                type: 'checkbox',
+                checked: self.isSubclassSelected(group, item),
+                onChange: () => self.toggleSubclass(group, item)
+              }),
+              h('span', null, item)
+            ]))
+          )
+        ])),
+        h('label', { class: 'field full', style: 'margin-top:16px' }, [
+          h('span', { class: 'label' }, '商品/服务项目（可直接编辑，会一并写入申请书）'),
+          h('textarea', {
+            value: d.goods || '',
+            onInput: (e) => { d.goods = e.target.value; },
+            rows: 6,
+            placeholder: '如：[0901] 计算机；计算机硬件；\n[0907] 电源开关；插座'
+          })
+        ])
+      ]) : null
+    ]);
+
+    // 状态 section
+    const statusSection = h('div', { class: 'section' }, [
+      h('h3', null, '申请状态 / 备注'),
+      h('div', { class: 'form-grid' }, [
+        field('当前状态', h('select', {
+          value: f.status || 'draft',
+          onChange: (e) => { f.status = e.target.value; }
+        }, [
+          h('option', { value: 'draft' }, '草稿'),
+          h('option', { value: 'applied' }, '已申请'),
+          h('option', { value: 'reviewing' }, '审查中'),
+          h('option', { value: 'approved' }, '已注册'),
+          h('option', { value: 'rejected' }, '驳回')
+        ])),
+        field('是否要求优先权', h('select', {
+          value: String(d.priorityClaim || false),
+          onChange: (e) => { d.priorityClaim = e.target.value === 'true'; }
+        }, [
+          h('option', { value: 'false' }, '否'),
+          h('option', { value: 'true' }, '是')
+        ])),
+        field('备注', h('textarea', {
+          value: d.notes || '',
+          onInput: (e) => { d.notes = e.target.value; },
+          rows: 3,
+          placeholder: '其他需要记录的信息'
+        }), 'full')
+      ])
+    ]);
+
+    // 操作按钮
+    const actionRow = h('div', { class: 'row gap-12', style: 'margin-top:24px' }, [
+      h('button', { class: 'btn-primary', onClick: () => self.$emit('save') }, '保存'),
+      h('button', { class: 'btn', onClick: () => self.exportApplication() }, '导出申请书 PDF')
+    ]);
+
+    function field(label, input, span) {
+      return h('label', { class: 'field' + (span === 'full' ? ' full' : '') }, [
+        h('span', { class: 'label' }, label),
+        input
+      ]);
+    }
+
+    return h('div', null, [
+      applicantSection,
+      basicSection,
+      markImageSection,
+      classSection,
+      statusSection,
+      actionRow
+    ]);
+  }
+};
