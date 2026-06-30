@@ -18,6 +18,12 @@
         mid: { revenue: 200000000, ratio: 0.04 },
         high: { ratio: 0.03 }
       },
+      // 《工作指引》研发费用结构:其他费用 ≤ 研发费用总额 × 20%
+      otherExpenseRatio: { max: 0.20, label: '"其他费用"占研发费用总额 ≤20%' },
+      // 《管理办法》第十一条:境内研发费用 ≥ 60%
+      domesticRdRatio: { min: 0.60, label: '境内研发费用占全部研发费用 ≥60%' },
+      // 《工作指引》:三表差异率 ≤ 15% (财务账 vs 税务账 vs 专项审计)
+      tripleMatchTolerance: { max: 0.15, label: '三表一致差异率 ≤15%' },
       hightechIncomeRatio: { min: 0.60, label: '高新技术产品(服务)收入占比 ≥60%' },
       noMajorAccident: { required: true, label: '无重大安全/质量/环保事故' },
       techFieldMatch: { required: true, label: '技术领域属《国家重点支持的高新技术领域》' }
@@ -134,11 +140,15 @@
     },
 
     // —— 硬性指标(不计入100分,必须满足) ——
-    { id: 'hard_tech_ratio', module: '硬性指标', title: '科技人员占企业当年职工总数比例(%)', type: 'number', unit: '%', hint: '≥10% 合格' },
+    { id: 'hard_tech_ratio', module: '硬性指标', title: '科技人员占企业当年职工总数比例(%)', type: 'number', unit: '%', hint: '≥10% 合格(管理办法第十一条)' },
     { id: 'hard_revenue', module: '硬性指标', title: '最近 1 年销售收入(元)', type: 'number', unit: '元', hint: '用于计算研发费用占比分档' },
     { id: 'hard_rd_expense', module: '硬性指标', title: '最近 1 年研发费用总额(元)', type: 'number', unit: '元', hint: '用于计算研发费用占比' },
+    { id: 'hard_rd_other', module: '硬性指标', title: '其中"其他费用"金额(元)', type: 'number', unit: '元', hint: '《工作指引》:其他费用 ≤ 研发费用总额 × 20%(差旅/会议/培训/知识产权申请费等)' },
+    { id: 'hard_rd_domestic', module: '硬性指标', title: '其中境内发生的研发费用(元)', type: 'number', unit: '元', hint: '《管理办法》第十一条:境内研发费用 ≥ 全部研发费用 × 60%' },
     { id: 'hard_ht_income', module: '硬性指标', title: '高新技术产品(服务)收入(元)', type: 'number', unit: '元', hint: '用于计算高新收入占比' },
     { id: 'hard_total_income', module: '硬性指标', title: '企业当年总收入(元)', type: 'number', unit: '元', hint: '分母,用于高新收入占比' },
+    { id: 'hard_audit_tax', module: '硬性指标', title: '税务申报的研发费用加计扣除金额(元)', type: 'number', unit: '元', hint: '用于"三表一致"校验:财务辅助账 vs 税务加计扣除 vs 专项审计,差异率 ≤15%' },
+    { id: 'hard_audit_special', module: '硬性指标', title: '专项审计报告中的研发费用金额(元)', type: 'number', unit: '元', hint: '审计师事务所出具的研发费用专项审计报告金额' },
     {
       id: 'hard_field',
       module: '硬性指标',
@@ -292,6 +302,40 @@
       ok = false;
     }
 
+    // 研发费用结构:其他费用 ≤ 20%
+    var rdOther = parseFloat(answers.hard_rd_other) || 0;
+    if (rd > 0 && rdOther > 0) {
+      var otherRatio = rdOther / rd;
+      if (otherRatio > 0.20) {
+        issues.push('"其他费用"占研发费用比例 ' + (otherRatio * 100).toFixed(2) + '% > 20%(《工作指引》研发费用结构明细表)');
+        ok = false;
+      }
+    }
+
+    // 境内研发费用 ≥ 60%
+    var rdDomestic = parseFloat(answers.hard_rd_domestic) || 0;
+    if (rd > 0 && rdDomestic > 0) {
+      var domesticRatio = rdDomestic / rd;
+      if (domesticRatio < 0.60) {
+        issues.push('境内研发费用占比 ' + (domesticRatio * 100).toFixed(2) + '% < 60%(管理办法第十一条)');
+        ok = false;
+      }
+    }
+
+    // 三表一致:差异率 ≤ 15%
+    var tax = parseFloat(answers.hard_audit_tax) || 0;
+    var special = parseFloat(answers.hard_audit_special) || 0;
+    if (rd > 0 && tax > 0 && special > 0) {
+      var values = [rd, tax, special];
+      var maxV = Math.max.apply(null, values);
+      var minV = Math.min.apply(null, values);
+      var diffRate = maxV > 0 ? (maxV - minV) / maxV : 0;
+      if (diffRate > 0.15) {
+        issues.push('三表差异率 ' + (diffRate * 100).toFixed(1) + '% > 15%(财务辅助账 vs 税务加计扣除 vs 专项审计)');
+        ok = false;
+      }
+    }
+
     return { ok: ok, issues: issues };
   }
 
@@ -338,6 +382,37 @@
 
   // ============ Vue 渲染 ============
   function renderHighTechTab(self, h) {
+    // 子 tab 切换:自评打分 / 研发台账
+    if (!self.htMainTab) self.htMainTab = 'assess';
+    var setMain = function (k) { self.htMainTab = k; };
+
+    var subBtn = function (key, label) {
+      return h('button', {
+        class: 'ht-mainsubtab' + (self.htMainTab === key ? ' active' : ''),
+        onClick: () => { setMain(key); }
+      }, label);
+    };
+
+    var subTabs = h('div', { class: 'ht-mainsubtabs' }, [
+      subBtn('assess', '📋 自评打分'),
+      subBtn('ledger', '💼 研发台账')
+    ]);
+
+    var content = self.htMainTab === 'ledger'
+      ? (window.HTLedger ? window.HTLedger.renderLedgerTab(self, h) : h('div', { class: 'card' }, '台账模块加载中...'))
+      : renderSelfAssessmentTab(self, h);
+
+    return h('div', { class: 'hightech-wrap' }, [
+      h('div', { class: 'ht-top' }, [
+        h('h2', null, '高新技术企业认定'),
+        h('p', { class: 'sub' }, '高新认定评分 · 知识产权清点 · 复审倒计时 · 申报材料清单 · 研发台账管理')
+      ]),
+      subTabs,
+      content
+    ]);
+  }
+
+  function renderSelfAssessmentTab(self, h) {
     // 顶层卡片:标题 + 操作按钮
     var card = function (title, body, opts) {
       opts = opts || {};
@@ -534,11 +609,7 @@
       })
     ), { icon: '📑', sub: '完整申报材料清单,按需准备' });
 
-    return h('div', { class: 'hightech-wrap' }, [
-      h('div', { class: 'ht-top' }, [
-        h('h2', null, '高新技术企业认定'),
-        h('p', { class: 'sub' }, '高新认定评分 · 知识产权清点 · 复审倒计时 · 申报材料清单')
-      ]),
+    return [
       dashboardContent,
       quizCard,
       recommendCard,
