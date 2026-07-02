@@ -783,7 +783,34 @@ const app = createApp({
           ? window.AITrademarkImage.renderAITrademarkPanel(self, h)
           : null,
         self.inputs.imagePreview ? h('div', { class: 'mt-12' }, [
-          btn('🔍 识别图样/营业执照', () => self.runOcr(), { primary: true }),
+          h('div', { class: 'ht-row' }, [
+            btn('🔍 识别图样/营业执照', () => self.runOcr(), { primary: true }),
+            (window.__ipbutlerSettings && window.__ipbutlerSettings.apiKey) ? h('button', {
+              class: 'btn',
+              style: 'margin-left:8px',
+              onClick: () => {
+                if (!self.inputs.imageBlob) { alert('请先上传图片'); return; }
+                if (window.__showToast) window.__showToast('🤖 强制 AI 视觉识别...', 'info');
+                window.AiExtract.ocrBusinessLicense(self.inputs.imageBlob).then(function (r) {
+                  if (r && r.fields) {
+                    self.result.fields = Object.assign({}, self.result.fields, {
+                      applicant: Object.assign({}, self.result.fields.applicant, r.fields)
+                    });
+                    if (window.__showToast) window.__showToast('✓ AI 视觉识别完成', 'success');
+                    if (r.rawText) self.inputs.imageOcrText = r.rawText;
+                  }
+                }).catch(function (e) {
+                  alert('AI 视觉失败: ' + e.message);
+                });
+              }
+            }, '🤖 强制 AI 视觉') : h('button', {
+              class: 'btn',
+              style: 'margin-left:8px',
+              disabled: true,
+              title: '请先到设置配 API Key'
+            }, '🔒 需配 key'),
+            self.settings.apiKey ? null : h('span', { class: 'ht-hint-line', style: 'margin-left:8px' }, '未配 API key,只能走 Tesseract(弱)')
+          ]),
           self.inputs.imageOcrText ? h('div', { class: 'mt-12 result-card' }, [
             h('div', { class: 'label' }, 'OCR 识别结果'),
             h('div', { class: 'value', style: 'max-height:200px;overflow:auto;font-size:12px;white-space:pre-wrap' }, self.inputs.imageOcrText)

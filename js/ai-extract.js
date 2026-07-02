@@ -38,14 +38,19 @@ const AiExtract = (() => {
     // 2. 如果用户配了 OpenAI/DeepSeek key,优先用 AI 视觉(准确率高 10 倍)
     const settings = (typeof window !== 'undefined' && window.__ipbutlerSettings) || null;
     if (settings && settings.apiKey && settings.baseUrl) {
+      if (window.__showToast) window.__showToast('🤖 AI 视觉识别中...', 'info', 1500);
       try {
         const aiResult = await aiVisionBusinessLicense(processed, settings);
         if (aiResult && aiResult.fields && (aiResult.fields.companyName || aiResult.fields.creditCode)) {
+          if (window.__showToast) window.__showToast('✓ AI 视觉识别成功', 'success');
           return aiResult;
         }
       } catch (e) {
         console.warn('[aiVision] failed, fallback to Tesseract', e.message);
+        if (window.__showToast) window.__showToast('⚠️ AI 视觉失败,降级到 Tesseract: ' + e.message.slice(0, 60), 'warn', 4000);
       }
+    } else {
+      if (window.__showToast) window.__showToast('⏳ Tesseract OCR 识别中(未配 key,准确率有限)...', 'info', 2000);
     }
 
     // 3. 兜底:Tesseract OCR
