@@ -1,11 +1,12 @@
 /**
- * AI 提取模块
- * 包含：
- *   1. Tesseract.js OCR（识别营业执照 / 商标图样）
- *   2. GitHub API 抓取（仓库元信息 + README）
- *   3. 本地文件读取（File API 拿源码）
- *   4. LLM 提取（OpenAI 兼容协议，结构化输出）
- */
+   * AI 提取模块
+   * 包含：
+   *   1. Tesseract.js OCR（识别营业执照 / 商标图样）+ 图片预处理
+   *   2. AI 视觉识别（OpenAI/DeepSeek GPT-4V，识别倾斜反光图片）
+   *   3. GitHub API 抓取（仓库元信息 + README）
+   *   4. 本地文件读取（File API 拿源码）
+   *   5. LLM 提取（OpenAI 兼容协议，结构化输出）
+   */
 const AiExtract = (() => {
 
   // ====== 1. OCR ======
@@ -26,12 +27,187 @@ const AiExtract = (() => {
    * 返回: { rawText, fields: { companyName, creditCode, legalRep, address, ... } }
    */
   async function ocrBusinessLicense(imageBlob) {
+    // 1. 图片预处理(去反光 + 增强对比度)
+    let processed = imageBlob;
+    try {
+      processed = await preprocessImage(imageBlob);
+    } catch (e) {
+      console.warn('[preprocessImage] failed, fallback', e);
+    }
+
+    // 2. 如果用户配了 OpenAI/DeepSeek key,优先用 AI 视觉(准确率高 10 倍)
+    const settings = (typeof window !== 'undefined' && window.__ipbutlerSettings) || null;
+    if (settings && settings.apiKey && settings.baseUrl) {
+      try {
+        const aiResult = await aiVisionBusinessLicense(processed, settings);
+        if (aiResult && aiResult.fields && (aiResult.fields.companyName || aiResult.fields.creditCode)) {
+          return aiResult;
+        }
+      } catch (e) {
+        console.warn('[aiVision] failed, fallback to Tesseract', e.message);
+      }
+    }
+
+    // 3. 兜底:Tesseract OCR
     const worker = await getWorker();
-    const { data } = await worker.recognize(imageBlob);
+    const { data } = await worker.recognize(processed);
     const text = data.text || '';
     return {
       rawText: text,
       fields: parseBusinessLicenseText(text)
+    };
+  }
+
+  // ============ 图片预处理 ============
+  // Canvas:灰度 + 自适应阈值(去反光/去噪) + 高对比度
+  async function preprocessImage(blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise(function (resolve, reject) {
+        const i = new Image();
+        i.onload = function () { resolve(i); };
+        i.onerror = reject;
+        i.src = url;
+      });
+
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (w < 50 || h < 50) return blob;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      const len = w * h;
+
+      // 1. 转灰度
+      const gray = new Uint8ClampedArray(len);
+      for (let i = 0; i < len; i++) {
+        const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+        gray[i] = (r * 299 + g * 587 + b * 114) / 1000;
+      }
+
+      // 2. 自适应阈值(局部均值) — 去反光
+      const winSize = 12;
+      const result = new Uint8ClampedArray(len);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let sum = 0, count = 0;
+          const yStart = Math.max(0, y - winSize);
+          const yEnd = Math.min(h, y + winSize + 1);
+          const xStart = Math.max(0, x - winSize);
+          const xEnd = Math.min(w, x + winSize + 1);
+          for (let yy = yStart; yy < yEnd; yy++) {
+            for (let xx = xStart; xx < xEnd; xx++) {
+              sum += gray[yy * w + xx];
+              count++;
+            }
+          }
+          const mean = sum / count;
+          const threshold = mean * 0.82;
+          result[y * w + x] = gray[y * w + x] < threshold ? 0 : 255;
+        }
+      }
+
+      // 3. 写回 canvas
+      for (let i = 0; i < len; i++) {
+        const v = result[i];
+        data[i * 4] = v;
+        data[i * 4 + 1] = v;
+        data[i * 4 + 2] = v;
+        data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      // 4. 转 PNG(无损,适合文字)
+      return await new Promise(function (resolve) {
+        canvas.toBlob(function (b) { resolve(b || blob); }, 'image/png', 0.95);
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // ============ AI 视觉识别 (GPT-4V / DeepSeek-VL / Qwen-VL) ============
+  async function aiVisionBusinessLicense(blob, settings) {
+    // blob → base64 dataURL
+    const dataUrl = await new Promise(function (resolve, reject) {
+      const r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+
+    const baseUrl = (settings.baseUrl || '').replace(/\/+$/, '');
+    const url = baseUrl + '/chat/completions';
+    const prompt = '这是一张中国营业执照图片。请仔细识别并提取以下字段,以 JSON 格式返回:\n' +
+      '{\n' +
+      '  "companyName": "公司全称",\n' +
+      '  "creditCode": "统一社会信用代码(18位字母数字)",\n' +
+      '  "companyType": "公司类型(如:有限责任公司)",\n' +
+      '  "legalRep": "法定代表人姓名",\n' +
+      '  "address": "住所/经营场所地址",\n' +
+      '  "registeredCapital": "注册资本(含单位)",\n' +
+      '  "establishedDate": "成立日期(YYYY-MM-DD)",\n' +
+      '  "businessScope": "经营范围",\n' +
+      '  "businessTerm": "营业期限"\n' +
+      '}\n' +
+      '注意:即使图片倾斜或有反光也要尽量识别,字段为空时返回空字符串。只返回 JSON,不要其他解释。';
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + settings.apiKey
+      },
+      body: JSON.stringify({
+        model: settings.model || 'gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }],
+        max_tokens: 800,
+        temperature: 0.1
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error('Vision API ' + resp.status + ': ' + err.slice(0, 200));
+    }
+    const data = await resp.json();
+    const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '';
+    if (!content) throw new Error('Vision API 返回空');
+
+    // 解析 JSON
+    let parsed;
+    try {
+      const m = content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) || content.match(/\{[\s\S]+\}/);
+      const jsonStr = m ? (m[1] || m[0]) : content;
+      parsed = JSON.parse(jsonStr);
+    } catch (e) {
+      throw new Error('Vision JSON 解析失败: ' + content.slice(0, 200));
+    }
+
+    return {
+      rawText: content,
+      fields: {
+        companyName: parsed.companyName || '',
+        creditCode: parsed.creditCode || '',
+        companyType: parsed.companyType || '',
+        legalRep: parsed.legalRep || '',
+        address: parsed.address || '',
+        registeredCapital: parsed.registeredCapital || '',
+        establishedDate: parsed.establishedDate || '',
+        businessScope: parsed.businessScope || '',
+        businessTerm: parsed.businessTerm || ''
+      }
     };
   }
 

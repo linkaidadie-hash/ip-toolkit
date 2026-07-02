@@ -51,6 +51,10 @@ const app = createApp({
           model: settings.model, githubToken: settings.githubToken
         }));
       } catch (e) {}
+      // 暴露给 ai-extract.js 用于 GPT-4V 视觉识别
+      window.__ipbutlerSettings = {
+        apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model
+      };
       showSettings.value = false;
       if (window.__showToast) window.__showToast('设置已保存', 'success');
     }
@@ -63,6 +67,10 @@ const app = createApp({
         if (s.model) settings.model = s.model;
         if (s.githubToken) settings.githubToken = s.githubToken;
       } catch (e) {}
+      // 同步暴露给 ai-extract.js 用于 GPT-4V 视觉识别
+      window.__ipbutlerSettings = {
+        apiKey: settings.apiKey, baseUrl: settings.baseUrl, model: settings.model
+      };
     }
 
     // ===== 输入处理 =====
